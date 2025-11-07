@@ -40,3 +40,8 @@ output "security_group_id" {
   description = "Security group ID"
   value       = aws_security_group.main.id
 }
+
+output "instance_arch" {
+  description = "Detected instance architecture (arm64 or amd64)"
+  value       = local.instance_arch
+}
