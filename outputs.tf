@@ -45,3 +45,13 @@ output "instance_arch" {
   description = "Detected instance architecture (arm64 or amd64)"
   value       = local.instance_arch
 }
+
+output "easy_oidc_version" {
+  description = "Resolved easy-oidc version (pinned from 'latest' if applicable)"
+  value       = local.easy_oidc_version_resolved
+}
+
+output "caddy_version" {
+  description = "Resolved Caddy version (pinned from 'latest' if applicable)"
+  value       = local.caddy_version_resolved
+}
