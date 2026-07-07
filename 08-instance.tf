@@ -1,4 +1,5 @@
-# Copyright 2025 Nadrama Pty Ltd
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # EC2 instance with pre-created ENI for stable IPs

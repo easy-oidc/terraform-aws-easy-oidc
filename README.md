@@ -1,3 +1,9 @@
+<!--
+Easy OIDC <https://easy-oidc.dev>
+Copyright The Easy OIDC Authors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # terraform-aws-easy-oidc
 
 Terraform module for deploying [easy-oidc](https://github.com/easy-oidc/easy-oidc) on AWS.
@@ -242,5 +248,5 @@ module "easy_oidc" {
 ## License
 
 Easy OIDC is licensed under the Apache License, Version 2.0.
-Copyright 2025 Nadrama Pty Ltd.
+Copyright The Easy OIDC Authors.
 See the [LICENSE](./LICENSE) file for details.

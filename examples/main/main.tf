@@ -1,4 +1,5 @@
-# Copyright 2025 Nadrama Pty Ltd
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
 # SPDX-License-Identifier: Apache-2.0
 
 terraform {
@@ -13,10 +14,10 @@ terraform {
 }
 
 locals {
-  region = "us-east-1"
-  vpc_cidr      = "10.0.0.0/16"
-  route53_zone  = "example.com"
-  oidc_hostname = "auth.example.com"
+  region                = "us-east-1"
+  vpc_cidr              = "10.0.0.0/16"
+  route53_zone          = "example.com"
+  oidc_hostname         = "auth.example.com"
   default_redirect_uris = ["http://localhost:8000"]
   groups_overrides = {
     prod-groups = {
@@ -30,9 +31,9 @@ locals {
     kubelogin-dev = {}
   }
   # SSH configuration - setting a public key path will enable SSH access, null to disable
-  ssh_public_key_path = null  # e.g., "~/.ssh/id_rsa.pub"
-  ssh_allowed_cidrs_ipv4 = [] # e.g., ["1.2.3.4/32"]
-  ssh_allowed_cidrs_ipv6 = [] # e.g., ["2001:db8::/64"]
+  ssh_public_key_path    = null # e.g., "~/.ssh/id_rsa.pub"
+  ssh_allowed_cidrs_ipv4 = []   # e.g., ["1.2.3.4/32"]
+  ssh_allowed_cidrs_ipv6 = []   # e.g., ["2001:db8::/64"]
 }
 
 provider "aws" {
