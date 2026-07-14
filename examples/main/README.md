@@ -27,8 +27,8 @@ aws secretsmanager create-secret \
     "client_secret": "GOCSPX-xxxxxxxxxxxxxxxxxxxxx"
   }'
 
-# Signing key
-openssl genpkey -algorithm ed25519 | aws secretsmanager create-secret \
+# PKCS8 PEM private key for the default RS256 algorithm
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | aws secretsmanager create-secret \
   --name easy-oidc-signing-key \
   --secret-string file:///dev/stdin
 ```

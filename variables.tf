@@ -45,9 +45,25 @@ variable "connector_client_secret_arn" {
 }
 
 variable "signing_key_secret_arn" {
-  description = "ARN of Secrets Manager secret containing Ed25519 signing key (PEM format)"
+  description = "ARN of Secrets Manager secret containing a PKCS8 PEM private key compatible with signing_algorithm"
   type        = string
   default     = null
+}
+
+variable "signing_algorithm" {
+  description = "JWT signing algorithm"
+  type        = string
+  default     = "RS256"
+
+  validation {
+    condition = contains([
+      "RS256", "RS384", "RS512",
+      "ES256", "ES384", "ES512",
+      "PS256", "PS384", "PS512",
+      "EdDSA",
+    ], var.signing_algorithm)
+    error_message = "signing_algorithm must be supported by Easy OIDC"
+  }
 }
 
 variable "default_redirect_uris" {

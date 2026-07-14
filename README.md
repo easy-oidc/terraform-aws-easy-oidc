@@ -45,10 +45,10 @@ aws secretsmanager create-secret \
   }'
 ```
 
-### 2. Signing Key (Ed25519)
+### 2. PKCS8 PEM Private Key (RSA-3072 for the default RS256 algorithm)
 
 ```bash
-openssl genpkey -algorithm ed25519 | aws secretsmanager create-secret \
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | aws secretsmanager create-secret \
   --name easy-oidc-signing-key \
   --secret-string file:///dev/stdin
 ```
@@ -204,7 +204,8 @@ module "easy_oidc" {
 | connector_client_secret_arn | Secrets Manager ARN for OAuth credentials | `string` | - | yes |
 | clients | Map of OIDC client configurations | `map(object)` | - | yes |
 | subnet_id | Subnet ID (auto-created if omitted) | `string` | `null` | no |
-| signing_key_secret_arn | Secrets Manager ARN for signing key | `string` | `null` | no |
+| signing_key_secret_arn | Secrets Manager ARN for a PKCS8 PEM private key compatible with `signing_algorithm` | `string` | `null` | no |
+| signing_algorithm | JWT signing algorithm | `string` | `"RS256"` | no |
 | default_redirect_uris | Default redirect URIs | `list(string)` | `["http://localhost:8000"]` | no |
 | groups_overrides | Group override mappings | `map(map(list(string)))` | `{}` | no |
 | enable_ipv4 | Enable IPv4 support | `bool` | `true` | no |

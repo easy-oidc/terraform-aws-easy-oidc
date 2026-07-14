@@ -5,9 +5,10 @@
 # Generate config.jsonc
 locals {
   config_jsonc = jsonencode({
-    issuer_url       = local.issuer_url
-    http_listen_addr = "127.0.0.1:8080"
-    data_dir         = "/var/lib/easy-oidc"
+    issuer_url        = local.issuer_url
+    http_listen_addr  = "127.0.0.1:8080"
+    data_dir          = "/var/lib/easy-oidc"
+    signing_algorithm = var.signing_algorithm
 
     secrets = {
       provider              = "aws"
