@@ -25,24 +25,33 @@ resource "aws_iam_role" "instance_role" {
   )
 }
 
-# IAM policy for Secrets Manager access
-resource "aws_iam_role_policy" "instance_role_secrets_access" {
+# IAM policy for Parameter Store or Secrets Manager access
+resource "aws_iam_role_policy" "instance_role_secret_access" {
   name_prefix = "${var.name_prefix}-instance-role-secrets-"
   role        = aws_iam_role.instance_role.id
+
+  lifecycle {
+    precondition {
+      condition = alltrue([
+        for reference in local.secret_references :
+        !startswith(reference, "arn:") || can(regex(var.secrets_provider == "aws-parameter-store" ? ":ssm:" : ":secretsmanager:", reference))
+      ])
+      error_message = "Secret ARNs in easy_oidc_config must match secrets_provider."
+    }
+  }
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
-        Action = [
+        Action = var.secrets_provider == "aws-parameter-store" ? [
+          "ssm:GetParameter"
+          ] : [
           "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
+          "secretsmanager:DescribeSecret",
         ]
-        Resource = compact([
-          var.connector_client_secret_arn,
-          var.signing_key_secret_arn
-        ])
+        Resource = local.secret_resource_arns
       }
     ]
   })

@@ -35,8 +35,9 @@ data "http" "caddy_checksums" {
 }
 
 locals {
-  # Determine architecture from instance type
-  instance_arch = length(regexall("^(t4g|a1|c6g|c7g|m6g|m7g|r6g|r7g)", var.instance_type)) > 0 ? "arm64" : "amd64"
+  # Map the selected instance type's AWS architecture to release artifact names
+  instance_arch     = contains(data.aws_ec2_instance_type.selected.supported_architectures, "arm64") ? "arm64" : "amd64"
+  aws_instance_arch = local.instance_arch == "arm64" ? "arm64" : "x86_64"
 
   # Parse easy-oidc sha512 from checksums
   easy_oidc_sha512 = try(
@@ -64,8 +65,9 @@ locals {
     CADDY_VERSION=${local.caddy_version_resolved}
     CADDY_SHA512=${local.caddy_sha512}
     OIDC_HOSTNAME=${local.oidc_hostname}
-    EASY_OIDC_CONFIG='${local.config_jsonc}'
+    EASY_OIDC_CONFIG=$(printf '%s' '${base64encode(local.config_jsonc)}' | base64 --decode)
     SSH=${var.ssh_key_name != null ? "true" : "false"}
+    FIREWALL=false
     ${replace(data.http.userdata_script.response_body, "/^#!.*/", "")}
   EOT
 }

@@ -13,4 +13,27 @@ locals {
 
   # Determine subnet for instance
   instance_subnet_id = local.create_subnet ? aws_subnet.main[0].id : var.subnet_id
+
+  # Collect all secrets referenced by the application configuration
+  secret_references = toset(compact(concat(
+    [
+      var.easy_oidc_config.secrets.signing_key_name,
+      var.easy_oidc_config.secrets.encryption_key_name,
+    ],
+    [for connector in values(var.easy_oidc_config.connectors) : connector.credentials_secret],
+    [
+      try(var.easy_oidc_config.email.otp_secret_name, null),
+      try(var.easy_oidc_config.email.smtp.credentials_secret, null),
+      try(var.easy_oidc_config.email.turnstile.secret_name, null),
+    ],
+  )))
+
+  # Derive least-privilege IAM resource ARNs for the configured secrets provider
+  secret_resource_arns = toset([
+    for reference in local.secret_references : startswith(reference, "arn:") ? reference : (
+      var.secrets_provider == "aws-parameter-store" ?
+      "arn:${data.aws_partition.current.partition}:ssm:${data.aws_vpc.selected.region}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(reference, "/")}" :
+      "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_vpc.selected.region}:${data.aws_caller_identity.current.account_id}:secret:${reference}-??????"
+    )
+  ])
 }

@@ -9,7 +9,7 @@ output "issuer_url" {
 
 output "client_ids" {
   description = "List of configured OIDC client IDs"
-  value       = keys(var.clients)
+  value       = keys(var.easy_oidc_config.clients)
 }
 
 output "enable_ipv4" {

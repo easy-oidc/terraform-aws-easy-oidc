@@ -16,29 +16,39 @@ This example demonstrates a complete deployment of easy-oidc with:
 
 ## Prerequisites
 
-Create secrets in AWS Secrets Manager:
+Create encrypted parameters in AWS Systems Manager Parameter Store:
 
 ```bash
 # OAuth credentials
-aws secretsmanager create-secret \
-  --name easy-oidc-connector-secret \
-  --secret-string '{
+aws ssm put-parameter \
+  --name /easy-oidc/google-credentials \
+  --type SecureString \
+  --value '{
     "client_id": "123456789.apps.googleusercontent.com",
     "client_secret": "GOCSPX-xxxxxxxxxxxxxxxxxxxxx"
   }'
 
 # PKCS8 PEM private key for the default RS256 algorithm
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | aws secretsmanager create-secret \
-  --name easy-oidc-signing-key \
-  --secret-string file:///dev/stdin
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 > signing-key.pem
+aws ssm put-parameter \
+  --name /easy-oidc/signing-key \
+  --type SecureString \
+  --value "$(cat signing-key.pem)"
+rm signing-key.pem
+
+# Encryption master key
+aws ssm put-parameter \
+  --name /easy-oidc/encryption-key \
+  --type SecureString \
+  --value "$(openssl rand -hex 32)"
 ```
 
 ## Usage
 
 ```bash
-terraform init
-terraform plan
-terraform apply
+tofu init
+tofu plan
+tofu apply
 ```
 
 ## Kubernetes Integration

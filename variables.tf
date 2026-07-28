@@ -30,60 +30,112 @@ variable "oidc_addr" {
   type        = string
 }
 
-variable "connector_type" {
-  description = "Upstream connector type: 'google' or 'github'"
-  type        = string
+variable "easy_oidc_config" {
+  description = "User-controlled Easy OIDC application configuration. The module injects deployment-owned settings."
+  type = object({
+    signing_algorithm = optional(string)
+    jwks_kid          = optional(string)
+    token_ttl_seconds = optional(number)
+    require_groups    = optional(bool)
+    templates_dir     = optional(string)
+    secrets = object({
+      signing_key_name    = string
+      encryption_key_name = optional(string)
+    })
+    connectors = map(object({
+      type               = string
+      display_name       = string
+      order              = optional(number)
+      credentials_secret = optional(string)
+      scopes             = optional(list(string))
+      google = optional(object({
+        hd = optional(string)
+      }))
+      github = optional(object({
+        hostname = optional(string)
+      }))
+      generic = optional(object({
+        authorization_url    = string
+        token_url            = string
+        userinfo_url         = string
+        email_field          = optional(string)
+        email_verified_field = optional(string)
+        subject_field        = optional(string)
+      }))
+    }))
+    email = optional(object({
+      verification_mode = optional(string)
+      otp_secret_name   = optional(string)
+      otp_ttl_seconds   = optional(number)
+      smtp = optional(object({
+        host               = string
+        port               = number
+        from_name          = optional(string)
+        from_address       = string
+        credentials_secret = string
+        tls_mode           = optional(string)
+      }))
+      turnstile = optional(object({
+        site_key    = string
+        secret_name = string
+      }))
+    }))
+    default_redirect_uris = optional(list(string), [])
+    groups_overrides      = optional(map(map(list(string))), {})
+    clients = map(object({
+      redirect_uris   = optional(list(string))
+      groups_override = optional(string)
+      require_groups  = optional(bool)
+    }))
+  })
+
   validation {
-    condition     = contains(["google", "github"], var.connector_type)
-    error_message = "connector_type must be 'google' or 'github'"
+    condition     = var.easy_oidc_config.signing_algorithm == null ? true : contains(["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512", "EdDSA"], var.easy_oidc_config.signing_algorithm)
+    error_message = "easy_oidc_config.signing_algorithm must be supported by Easy OIDC."
+  }
+
+  validation {
+    condition     = length(var.easy_oidc_config.connectors) > 0 && length(var.easy_oidc_config.clients) > 0
+    error_message = "easy_oidc_config must define at least one connector and one client."
+  }
+
+  validation {
+    condition = alltrue([
+      for id, connector in var.easy_oidc_config.connectors :
+      can(regex("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", id)) &&
+      contains(["google", "github", "generic", "email"], connector.type) &&
+      connector.display_name != "" &&
+      (connector.type == "email" || (connector.credentials_secret != null && connector.credentials_secret != "")) &&
+      (connector.type != "generic" || connector.generic != null)
+    ])
+    error_message = "Each connector must have a path-safe ID, supported type, display name, required credentials, and type-specific configuration."
+  }
+
+  validation {
+    condition     = !contains([for connector in values(var.easy_oidc_config.connectors) : connector.type], "github") || (var.easy_oidc_config.secrets.encryption_key_name != null && var.easy_oidc_config.secrets.encryption_key_name != "")
+    error_message = "easy_oidc_config.secrets.encryption_key_name is required for GitHub connectors."
+  }
+
+  validation {
+    condition     = try(var.easy_oidc_config.email.verification_mode, null) == null ? true : contains(["disabled", "provider", "strict"], var.easy_oidc_config.email.verification_mode)
+    error_message = "easy_oidc_config.email.verification_mode must be disabled, provider, or strict."
+  }
+
+  validation {
+    condition     = try(var.easy_oidc_config.email.smtp.tls_mode, null) == null ? true : contains(["starttls", "implicit", "plaintext"], var.easy_oidc_config.email.smtp.tls_mode)
+    error_message = "easy_oidc_config.email.smtp.tls_mode must be starttls, implicit, or plaintext."
   }
 }
 
-variable "connector_client_secret_arn" {
-  description = "ARN of Secrets Manager secret containing OAuth client credentials (JSON with client_id and client_secret)"
+variable "secrets_provider" {
+  description = "AWS secrets backend used by Easy OIDC"
   type        = string
-}
-
-variable "signing_key_secret_arn" {
-  description = "ARN of Secrets Manager secret containing a PKCS8 PEM private key compatible with signing_algorithm"
-  type        = string
-  default     = null
-}
-
-variable "signing_algorithm" {
-  description = "JWT signing algorithm"
-  type        = string
-  default     = "RS256"
+  default     = "aws-parameter-store"
 
   validation {
-    condition = contains([
-      "RS256", "RS384", "RS512",
-      "ES256", "ES384", "ES512",
-      "PS256", "PS384", "PS512",
-      "EdDSA",
-    ], var.signing_algorithm)
-    error_message = "signing_algorithm must be supported by Easy OIDC"
+    condition     = contains(["aws-parameter-store", "aws-secrets-manager"], var.secrets_provider)
+    error_message = "secrets_provider must be aws-parameter-store or aws-secrets-manager."
   }
-}
-
-variable "default_redirect_uris" {
-  description = "Default redirect URIs for OIDC clients"
-  type        = list(string)
-  default     = ["http://localhost:8000"]
-}
-
-variable "groups_overrides" {
-  description = "Map of group override keys to email-to-groups mappings"
-  type        = map(map(list(string)))
-  default     = {}
-}
-
-variable "clients" {
-  description = "Map of OIDC client configurations (key is client_id)"
-  type = map(object({
-    redirect_uris   = optional(list(string))
-    groups_override = optional(string)
-  }))
 }
 
 variable "enable_ipv4" {
@@ -93,7 +145,7 @@ variable "enable_ipv4" {
 }
 
 variable "instance_type" {
-  description = "ARM64 EC2 instance type"
+  description = "EC2 instance type; its architecture selects the matching Debian image and release artifacts"
   type        = string
   default     = "t4g.nano"
 }
@@ -108,18 +160,6 @@ variable "allowed_cidrs_ipv6" {
   description = "Allowed IPv6 CIDRs for HTTPS access"
   type        = list(string)
   default     = ["::/0"]
-}
-
-variable "connector_hosted_domain" {
-  description = "Google hosted domain (hd parameter) - only used with connector_type=google"
-  type        = string
-  default     = null
-}
-
-variable "connector_github_hostname" {
-  description = "GitHub hostname for GitHub Enterprise - only used with connector_type=github"
-  type        = string
-  default     = "github.com"
 }
 
 variable "easy_oidc_version" {

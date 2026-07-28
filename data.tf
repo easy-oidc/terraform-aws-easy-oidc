@@ -6,13 +6,21 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-data "aws_ami" "ubuntu_arm64" {
+data "aws_caller_identity" "current" {}
+
+data "aws_partition" "current" {}
+
+data "aws_ec2_instance_type" "selected" {
+  instance_type = var.instance_type
+}
+
+data "aws_ami" "debian" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["136693071363"] # Debian
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*"]
+    values = ["debian-13-${local.instance_arch}-*"]
   }
 
   filter {
@@ -22,7 +30,7 @@ data "aws_ami" "ubuntu_arm64" {
 
   filter {
     name   = "architecture"
-    values = ["arm64"]
+    values = [local.aws_instance_arch]
   }
 }
 

@@ -14,21 +14,33 @@ terraform {
 }
 
 locals {
-  region                = "us-east-1"
-  vpc_cidr              = "10.0.0.0/16"
-  route53_zone          = "example.com"
-  oidc_hostname         = "auth.example.com"
-  default_redirect_uris = ["http://localhost:8000"]
-  groups_overrides = {
-    prod-groups = {
-      "demo@example.com" = ["prod-admins", "devs"]
+  region        = "us-east-1"
+  vpc_cidr      = "10.0.0.0/16"
+  route53_zone  = "example.com"
+  oidc_hostname = "auth.example.com"
+  easy_oidc_config = {
+    secrets = {
+      signing_key_name    = "/easy-oidc/signing-key"
+      encryption_key_name = "/easy-oidc/encryption-key"
     }
-  }
-  clients = {
-    kubelogin-prod = {
-      groups_override = "prod-groups"
+    connectors = {
+      google = {
+        type               = "google"
+        display_name       = "Google"
+        credentials_secret = "/easy-oidc/google-credentials"
+      }
     }
-    kubelogin-dev = {}
+    groups_overrides = {
+      prod-groups = {
+        "demo@example.com" = ["prod-admins", "devs"]
+      }
+    }
+    clients = {
+      kubelogin-prod = {
+        redirect_uris   = ["http://localhost:8000"]
+        groups_override = "prod-groups"
+      }
+    }
   }
   # SSH configuration - setting a public key path will enable SSH access, null to disable
   ssh_public_key_path    = null # e.g., "~/.ssh/id_rsa.pub"
@@ -38,14 +50,6 @@ locals {
 
 provider "aws" {
   region = local.region
-}
-
-# Reference pre-created secrets
-data "aws_secretsmanager_secret" "connector_secret" {
-  name = "easy-oidc-connector-secret"
-}
-data "aws_secretsmanager_secret" "signing_key" {
-  name = "easy-oidc-signing-key"
 }
 
 # VPC with dual-stack support
@@ -88,7 +92,7 @@ resource "aws_key_pair" "easy_oidc" {
   count = local.ssh_public_key_path != null ? 1 : 0
 
   key_name   = "easy-oidc-ssh"
-  public_key = file(local.ssh_public_key_path)
+  public_key = local.ssh_public_key_path != null ? file(local.ssh_public_key_path) : ""
 }
 
 # Deploy easy-oidc
@@ -96,14 +100,9 @@ module "easy_oidc" {
   # source = "easy-oidc/easy-oidc/aws"
   source = "../../"
 
-  vpc_id                      = aws_vpc.main.id
-  oidc_addr                   = local.oidc_hostname
-  connector_type              = "google"
-  connector_client_secret_arn = data.aws_secretsmanager_secret.connector_secret.arn
-  signing_key_secret_arn      = data.aws_secretsmanager_secret.signing_key.arn
-  default_redirect_uris       = local.default_redirect_uris
-  groups_overrides            = local.groups_overrides
-  clients                     = local.clients
+  vpc_id           = aws_vpc.main.id
+  oidc_addr        = local.oidc_hostname
+  easy_oidc_config = local.easy_oidc_config
 
   # SSH access (enabled if ssh_public_key_path is set)
   ssh_key_name           = local.ssh_public_key_path != null ? aws_key_pair.easy_oidc[0].key_name : null

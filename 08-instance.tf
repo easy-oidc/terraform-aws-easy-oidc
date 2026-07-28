@@ -5,7 +5,7 @@
 # EC2 instance with pre-created ENI for stable IPs
 resource "aws_launch_template" "main" {
   name_prefix   = "${var.name_prefix}-"
-  image_id      = data.aws_ami.ubuntu_arm64.id
+  image_id      = data.aws_ami.debian.id
   instance_type = var.instance_type
   key_name      = var.ssh_key_name
 
@@ -21,7 +21,7 @@ resource "aws_launch_template" "main" {
   user_data = base64encode(local.userdata)
 
   block_device_mappings {
-    device_name = "/dev/sda1"
+    device_name = data.aws_ami.debian.root_device_name
     ebs {
       encrypted   = true
       kms_key_id  = var.kms_key_id
@@ -43,12 +43,6 @@ resource "aws_launch_template" "main" {
 resource "aws_instance" "main" {
   launch_template {
     id      = aws_launch_template.main.id
-    version = "$Latest"
-  }
-
-  user_data_replace_on_change = true
-
-  lifecycle {
-    ignore_changes = [launch_template[0].version]
+    version = aws_launch_template.main.latest_version
   }
 }
