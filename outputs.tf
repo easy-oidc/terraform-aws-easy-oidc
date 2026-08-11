@@ -8,8 +8,8 @@ output "issuer_url" {
 }
 
 output "client_ids" {
-  description = "List of configured OIDC client IDs"
-  value       = keys(var.easy_oidc_config.clients)
+  description = "List of statically configured OIDC client IDs"
+  value       = keys(try(var.easy_oidc_config.static_policy.clients, {}))
 }
 
 output "enable_ipv4" {

@@ -42,7 +42,17 @@ aws ssm put-parameter \
 
 ## Usage
 
-The `easy_oidc_config` value follows the [Easy OIDC application configuration](https://easy-oidc.dev/docs/config/). Omit application settings to use Easy OIDC's own defaults. The module only adds deployment-owned values and always overrides `issuer_url`, `http_listen_addr`, `data_dir`, `secrets.provider`, and `secrets.aws_region`. Application secret fields such as `signing_key_name` and `encryption_key_name` are preserved. The module derives least-privilege IAM resources from every secret reference in this object.
+The typed `easy_oidc_config` value models the current [Easy OIDC v2 application configuration](https://easy-oidc.dev/docs/config/) so type and supported cross-field errors fail during planning. The module overrides `issuer_url`, `http_listen_addr`, `secrets.provider`, and `secrets.aws_region`. It also defaults the deployment's state database to SQLite at `/var/lib/easy-oidc/easy-oidc-state.db`, including when an explicit SQLite configuration omits `path`; explicit PostgreSQL configuration is preserved. The module derives least-privilege IAM resources from the runtime secret references in this object.
+
+By default, the migration-only
+`state_database.migrations.connection_string_secret` is not granted to the
+instance role. Set `run_db_migrations = true` to grant access to
+that secret and run `easy-oidc migrate` before every service start. A failed
+migration prevents Easy OIDC from starting. Because migration credentials
+usually have broader database permissions than runtime credentials, keep the
+default and run migrations with a separate deployment identity in stricter
+environments. See the
+[state database guide](https://easy-oidc.dev/docs/state-database/).
 
 ```hcl
 module "easy_oidc" {
@@ -56,22 +66,24 @@ module "easy_oidc" {
       signing_key_name    = "/easy-oidc/signing-key"
       encryption_key_name = "/easy-oidc/encryption-key"
     }
-    connectors = {
+    user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
         credentials_secret = "/easy-oidc/google-credentials"
       }
     }
-    groups_overrides = {
-      prod-groups = {
-        "alice@example.com" = ["prod-admins", "developers"]
+    static_policy = {
+      user_group_mappings = {
+        prod-groups = {
+          "alice@example.com" = ["prod-admins", "developers"]
+        }
       }
-    }
-    clients = {
-      kubelogin-prod = {
-        redirect_uris   = ["http://localhost:8000"]
-        groups_override = "prod-groups"
+      clients = {
+        kubelogin-prod = {
+          redirect_uris      = ["http://localhost:8000"]
+          user_group_mapping = "prod-groups"
+        }
       }
     }
   }
@@ -102,7 +114,8 @@ Configure the API server with the module's `issuer_url` and one of its `client_i
 --oidc-groups-claim=groups
 ```
 
-Easy OIDC requires PKCE. For example, use `kubectl oidc-login setup --oidc-use-pkce`.
+Easy OIDC requires PKCE. For example, use
+`kubectl oidc-login setup --oidc-pkce-method=S256`.
 
 ## IPv6-only deployment
 
@@ -125,7 +138,8 @@ This table is the complete module input reference.
 |------|-------------|------|---------|----------|
 | `vpc_id` | VPC ID where Easy OIDC is deployed. | `string` | n/a | yes |
 | `oidc_addr` | Public OIDC server address, such as `auth.example.com` or `auth.example.com:8443`. | `string` | n/a | yes |
-| `easy_oidc_config` | Typed Easy OIDC application configuration object. Put application-owned signing, secret names, connectors, clients, email, groups, and related settings here. Deployment-owned fields are overridden as described above. | `object` | n/a | yes |
+| `easy_oidc_config` | Typed Easy OIDC v2 application configuration. Put application-owned settings here; deployment-owned fields are overridden as described above. | `object` | n/a | yes |
+| `run_db_migrations` | Run migrations before every service start and grant access to the configured migration secret. | `bool` | `false` | no |
 | `secrets_provider` | AWS secrets backend: `aws-parameter-store` or `aws-secrets-manager`. | `string` | `"aws-parameter-store"` | no |
 | `name_prefix` | Prefix for resource names. | `string` | `"easy-oidc"` | no |
 | `tags` | Additional tags applied to all resources. | `map(string)` | `{}` | no |
@@ -134,7 +148,7 @@ This table is the complete module input reference.
 | `instance_type` | EC2 instance type; its architecture selects the matching Debian 13 image. | `string` | `"t4g.nano"` | no |
 | `allowed_cidrs_ipv4` | IPv4 CIDRs allowed to access HTTP/HTTPS; ignored when IPv4 is disabled. | `list(string)` | `["0.0.0.0/0"]` | no |
 | `allowed_cidrs_ipv6` | IPv6 CIDRs allowed to access HTTP/HTTPS. | `list(string)` | `["::/0"]` | no |
-| `easy_oidc_version` | Easy OIDC version to install (git tag or `latest`). | `string` | `"latest"` | no |
+| `easy_oidc_version` | Easy OIDC release to install; must be `v2.0.0` or later, or `latest`. | `string` | `"latest"` | no |
 | `caddy_version` | Caddy version to install, or `latest`. | `string` | `"latest"` | no |
 | `kms_key_id` | KMS key ID/ARN for EBS encryption; uses the AWS-managed key when omitted. | `string` | `null` | no |
 | `ssh_key_name` | Existing EC2 key pair name; SSH is disabled when omitted. | `string` | `null` | no |
@@ -146,7 +160,7 @@ This table is the complete module input reference.
 | Name | Description |
 |------|-------------|
 | `issuer_url` | OIDC issuer URL. |
-| `client_ids` | Client IDs derived from `easy_oidc_config.clients`. |
+| `client_ids` | Static client IDs derived from `easy_oidc_config.static_policy.clients`; empty when clients come only from the policy database. |
 | `enable_ipv4` | Whether IPv4 is enabled. |
 | `public_ipv4` | Public IPv4 address, or null when disabled. |
 | `public_ipv6` | Public IPv6 address. |
@@ -162,7 +176,7 @@ This table is the complete module input reference.
 - Secrets remain in Parameter Store or Secrets Manager; only parameter or secret names are included in the rendered configuration.
 - The EC2 role receives only the read actions and resources derived from secret references in `easy_oidc_config`.
 - Caddy provides automatic HTTPS, and Easy OIDC requires PKCE for clients.
-- OAuth state and authorization codes are stored under `/var/lib/easy-oidc`.
+- By default, protocol state is stored in `/var/lib/easy-oidc/easy-oidc-state.db`; configure `state_database` for PostgreSQL.
 
 ## License
 

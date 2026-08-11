@@ -66,6 +66,7 @@ locals {
     CADDY_SHA512=${local.caddy_sha512}
     OIDC_HOSTNAME=${local.oidc_hostname}
     EASY_OIDC_CONFIG=$(printf '%s' '${base64encode(local.config_jsonc)}' | base64 --decode)
+    RUN_DB_MIGRATIONS=${var.run_db_migrations}
     SSH=${var.ssh_key_name != null ? "true" : "false"}
     FIREWALL=false
     ${replace(data.http.userdata_script.response_body, "/^#!.*/", "")}

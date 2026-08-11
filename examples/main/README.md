@@ -11,8 +11,8 @@ This example demonstrates a complete deployment of easy-oidc with:
 - VPC with dual-stack IPv4/IPv6 networking
 - Internet Gateway for bidirectional internet access
 - Google OAuth connector
-- Static group mappings for Kubernetes RBAC
-- Multiple OIDC clients
+- A `static_policy.user_group_mappings` entry for Kubernetes RBAC
+- A static OIDC client that selects the mapping with `user_group_mapping`
 
 ## Prerequisites
 
@@ -53,4 +53,4 @@ tofu apply
 
 ## Kubernetes Integration
 
-Use the issuer URL and client IDs from outputs to configure your Kubernetes API server and kubeconfig.
+Use the issuer URL and static client IDs from outputs to configure your Kubernetes API server and kubeconfig. The `client_ids` output is empty when clients are supplied only by `policy_database`.

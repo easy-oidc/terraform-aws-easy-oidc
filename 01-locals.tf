@@ -17,15 +17,20 @@ locals {
   # Collect all secrets referenced by the application configuration
   secret_references = toset(compact(concat(
     [
-      var.easy_oidc_config.secrets.signing_key_name,
-      var.easy_oidc_config.secrets.encryption_key_name,
+      try(var.easy_oidc_config.secrets.signing_key_name, null),
+      try(var.easy_oidc_config.secrets.encryption_key_name, null),
     ],
-    [for connector in values(var.easy_oidc_config.connectors) : connector.credentials_secret],
+    [for connector in values(try(var.easy_oidc_config.user_login_connectors, {})) : try(connector.credentials_secret, null)],
     [
       try(var.easy_oidc_config.email.otp_secret_name, null),
       try(var.easy_oidc_config.email.smtp.credentials_secret, null),
       try(var.easy_oidc_config.email.turnstile.secret_name, null),
+      try(var.easy_oidc_config.state_database.connection_string_secret, null),
+      try(var.easy_oidc_config.policy_database.connection_string_secret, null),
     ],
+    var.run_db_migrations ? [
+      try(var.easy_oidc_config.state_database.migrations.connection_string_secret, null),
+    ] : [],
   )))
 
   # Derive least-privilege IAM resource ARNs for the configured secrets provider
