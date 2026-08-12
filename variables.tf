@@ -196,14 +196,36 @@ variable "easy_oidc_config" {
       contains(["google", "github", "generic", "email"], connector.type) &&
       trimspace(connector.display_name) != "" &&
       (connector.type == "email" || try(trimspace(connector.credentials_secret) != "", false)) &&
-      (connector.type != "generic" || connector.generic != null)
+      (connector.type == "email" ? (
+        connector.credentials_secret == null && connector.scopes == null && connector.google == null && connector.github == null && connector.generic == null
+        ) : connector.type == "google" ? (
+        connector.github == null && connector.generic == null &&
+        alltrue([for scope in coalesce(connector.scopes, []) : trimspace(scope) != ""])
+        ) : connector.type == "github" ? (
+        connector.google == null && connector.generic == null &&
+        alltrue([for scope in coalesce(connector.scopes, []) : trimspace(scope) != ""])
+        ) : connector.type == "generic" ? (
+        connector.google == null && connector.github == null && connector.generic != null &&
+        try(trimspace(connector.generic.authorization_url) != "", false) &&
+        try(trimspace(connector.generic.token_url) != "", false) &&
+        try(trimspace(connector.generic.userinfo_url) != "", false) &&
+        alltrue([for scope in coalesce(connector.scopes, []) : trimspace(scope) != ""]) &&
+        alltrue([for scope in coalesce(try(connector.generic.refresh.scopes, null), []) : trimspace(scope) != "" && !can(regex("\\s", scope))]) &&
+        alltrue([for key in keys(coalesce(try(connector.generic.refresh.authorization_params, null), {})) : trimspace(key) != "" && !contains(["client_id", "redirect_uri", "response_type", "scope", "state", "nonce", "code_challenge", "code_challenge_method"], key)])
+      ) : false)
     ])
-    error_message = "Each user login connector must have a path-safe ID, supported type, display name, required credentials, and type-specific configuration."
+    error_message = "Each connector must have a path-safe ID, display name, and only the credentials, scopes, and provider block valid for its type; generic endpoints and refresh values must be nonblank and refresh authorization_params cannot override Easy OIDC-owned parameters."
   }
 
   validation {
-    condition     = !contains([for connector in values(var.easy_oidc_config.user_login_connectors) : connector.type], "github") || try(trimspace(var.easy_oidc_config.secrets.encryption_key_name) != "", false)
-    error_message = "easy_oidc_config.secrets.encryption_key_name is required for GitHub connectors."
+    condition = !(
+      contains([for connector in values(var.easy_oidc_config.user_login_connectors) : connector.type], "github") ||
+      (
+        contains([for connector in values(var.easy_oidc_config.user_login_connectors) : connector.type != "email"], true) &&
+        (contains([for client in values(coalesce(try(var.easy_oidc_config.static_policy.clients, null), {})) : try(coalesce(client.refresh_tokens.enabled, false), false)], true) || try(coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.enabled, false), false))
+      )
+    ) || try(trimspace(var.easy_oidc_config.secrets.encryption_key_name) != "", false)
+    error_message = "easy_oidc_config.secrets.encryption_key_name is required for GitHub and when refresh tokens are enabled for clients that can use a non-email connector."
   }
 
   validation {
@@ -217,8 +239,46 @@ variable "easy_oidc_config" {
   }
 
   validation {
+    condition = !(
+      contains([for connector in values(var.easy_oidc_config.user_login_connectors) : connector.type], "email") ||
+      contains(["provider", "strict"], coalesce(try(var.easy_oidc_config.email.verification_mode, null), "disabled"))
+      ) || (
+      var.easy_oidc_config.email != null &&
+      try(trimspace(var.easy_oidc_config.email.otp_secret_name) != "", false) &&
+      try(var.easy_oidc_config.email.smtp != null, false) &&
+      try(contains([for minutes in range(1, 11) : timeadd("2000-01-01T00:00:00Z", "${minutes}m")], timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.email.otp_ttl, "5m"))), false)
+    )
+    error_message = "An email connector or provider/strict verification requires email configuration, a nonblank otp_secret_name, complete SMTP configuration, and otp_ttl equivalent to 1-10 whole minutes."
+  }
+
+  validation {
+    condition = var.easy_oidc_config.email == null ? true : (
+      var.easy_oidc_config.email.smtp == null ? true : (
+        trimspace(var.easy_oidc_config.email.smtp.host) != "" &&
+        trimspace(var.easy_oidc_config.email.smtp.from_address) != "" &&
+        can(regex("^[^@\\s<>]+@[^@\\s<>]+$", var.easy_oidc_config.email.smtp.from_address)) &&
+        (coalesce(var.easy_oidc_config.email.smtp.tls_mode, "starttls") != "plaintext" || var.easy_oidc_config.email.smtp.host == "localhost")
+      )
+    )
+    error_message = "email.smtp requires a nonblank host and bare, basic-valid from_address; plaintext TLS mode is only permitted with host localhost."
+  }
+
+  validation {
     condition     = try(length(var.easy_oidc_config.static_policy.clients) > 0, false) ? true : var.easy_oidc_config.policy_database != null
     error_message = "easy_oidc_config must configure static_policy.clients or policy_database."
+  }
+
+  validation {
+    condition     = try(var.easy_oidc_config.static_policy.default_redirect_uris, null) == null ? true : length(var.easy_oidc_config.static_policy.default_redirect_uris) > 0
+    error_message = "static_policy.default_redirect_uris must be omitted or nonempty."
+  }
+
+  validation {
+    condition = alltrue([
+      for client in values(coalesce(try(var.easy_oidc_config.static_policy.clients, null), {})) :
+      try(length(client.redirect_uris) > 0, false) || try(length(var.easy_oidc_config.static_policy.default_redirect_uris) > 0, false)
+    ])
+    error_message = "Every static client requires nonempty redirect_uris or nonempty static_policy.default_redirect_uris."
   }
 
   validation {
@@ -265,10 +325,41 @@ variable "easy_oidc_config" {
     condition = alltrue([
       for issuer in values(coalesce(var.easy_oidc_config.service_token_issuers, {})) :
       contains(["github", "buildkite", "oidc"], issuer.provider) && (
-        issuer.provider != "oidc" || (try(trimspace(issuer.issuer_url) != "", false) && try(length(issuer.signing_algs) > 0, false) && try(trimspace(issuer.max_token_age) != "", false))
+        issuer.provider == "oidc" ? (
+          try(trimspace(issuer.issuer_url) != "", false) &&
+          try(length(issuer.signing_algs) > 0, false) &&
+          alltrue([for alg in coalesce(issuer.signing_algs, []) : contains(["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512", "EdDSA"], alg)]) &&
+          try(trimspace(issuer.max_token_age) != "", false)
+          ) : (
+          issuer.issuer_url == null && issuer.signing_algs == null && issuer.max_token_age == null
+        )
       )
     ])
-    error_message = "Service token issuers must use github, buildkite, or oidc; oidc issuers require issuer_url, signing_algs, and max_token_age."
+    error_message = "Service token issuers must use github, buildkite, or oidc; presets cannot override issuer fields, while oidc requires issuer_url, supported signing_algs, and max_token_age."
+  }
+
+  validation {
+    condition = alltrue(concat(
+      [for refresh in [for client in values(coalesce(try(var.easy_oidc_config.static_policy.clients, null), {})) : client.refresh_tokens if client.refresh_tokens != null] :
+        (!coalesce(refresh.allow_offline_access, false) || coalesce(refresh.enabled, false)) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(refresh.session_idle_ttl, "30m")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(refresh.session_absolute_ttl, "10h")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(refresh.offline_idle_ttl, "720h")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(refresh.offline_absolute_ttl, "2160h")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(refresh.session_idle_ttl, "30m")), timeadd("2000-01-01T00:00:00Z", coalesce(refresh.session_absolute_ttl, "10h"))) <= 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(refresh.offline_idle_ttl, "720h")), timeadd("2000-01-01T00:00:00Z", coalesce(refresh.offline_absolute_ttl, "2160h"))) <= 0, false)
+      ],
+      [try(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens, null) == null ? true : (
+        (!coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.allow_offline_access, false) || coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.enabled, false)) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.session_idle_ttl, "30m")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.session_absolute_ttl, "10h")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.offline_idle_ttl, "720h")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.offline_absolute_ttl, "2160h")), "2000-01-01T00:00:00Z") > 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.session_idle_ttl, "30m")), timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.session_absolute_ttl, "10h"))) <= 0, false) &&
+        try(timecmp(timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.offline_idle_ttl, "720h")), timeadd("2000-01-01T00:00:00Z", coalesce(var.easy_oidc_config.policy_database.client_defaults.refresh_tokens.offline_absolute_ttl, "2160h"))) <= 0, false)
+      )]
+    ))
+    error_message = "Refresh durations must be positive, allow_offline_access requires enabled, and session/offline idle TTLs must not exceed their absolute TTLs."
   }
 
   validation {

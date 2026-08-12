@@ -42,7 +42,7 @@ aws ssm put-parameter \
 
 ## Usage
 
-The typed `easy_oidc_config` value models the current [Easy OIDC v2 application configuration](https://easy-oidc.dev/docs/config/) so type and supported cross-field errors fail during planning. The module overrides `issuer_url`, `http_listen_addr`, `secrets.provider`, and `secrets.aws_region`. It also defaults the deployment's state database to SQLite at `/var/lib/easy-oidc/easy-oidc-state.db`, including when an explicit SQLite configuration omits `path`; explicit PostgreSQL configuration is preserved. The module derives least-privilege IAM resources from the runtime secret references in this object.
+The typed `easy_oidc_config` value models the current [Easy OIDC v2 application configuration](https://easy-oidc.dev/docs/config/) so type and supported cross-field errors fail during planning. The module overrides `issuer_url`, `http_listen_addr`, `secrets.provider`, and `secrets.aws_region`. The schema-editor-only `$schema` field and native `serving_certificate` field are intentionally omitted: this deployment generates the configuration and terminates TLS with Caddy. It also defaults the deployment's state database to SQLite at `/var/lib/easy-oidc/easy-oidc-state.db`, including when an explicit SQLite configuration omits `path`; explicit PostgreSQL configuration is preserved. The module derives least-privilege IAM resources from the runtime secret references in this object.
 
 By default, the migration-only
 `state_database.migrations.connection_string_secret` is not granted to the
